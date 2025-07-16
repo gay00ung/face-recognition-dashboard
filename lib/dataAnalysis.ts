@@ -127,6 +127,36 @@ export function mergeAnalysisData(allData: Partial<AnalysisData>[]): AnalysisDat
       threshold: parseFloat(row['Threshold Score'])
     }
   })
+
+  // Sensor 데이터 처리
+  merged.sensor.forEach(row => {
+    const id = row.ID
+    if (!mergedById[id]) mergedById[id] = {}
+
+    // Euler Angles 파싱
+    if (row['Euler Angles (X,Y,Z)']) {
+      const angles = row['Euler Angles (X,Y,Z)'].split(',').map((v: string) => parseFloat(v.trim()))
+      mergedById[id].sensor = {
+        eulerX: angles[0] || 0,
+        eulerY: angles[1] || 0,
+        eulerZ: angles[2] || 0,
+        ambientLight: parseFloat(row['Ambient Light']) || 0
+      }
+    }
+  })
+
+  // Process Time 데이터 처리
+  merged.processTime.forEach(row => {
+    const id = row['Transaction ID'] || row.ID
+    if (!mergedById[id]) mergedById[id] = {}
+    
+    if (!mergedById[id].processes) mergedById[id].processes = {}
+    
+    const processName = row['Process Name']
+    mergedById[id].processes[processName] = {
+      duration: parseInt(row['Duration (ms)']) || 0
+    }
+  })
   
   // 배열로 변환
   merged.merged = Object.entries(mergedById).map(([id, data]) => ({

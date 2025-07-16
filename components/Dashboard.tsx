@@ -4,6 +4,8 @@ import { useState } from 'react'
 import FileUpload from './FileUpload'
 import { parseIntegratedCSV, mergeAnalysisData } from '@/lib/dataAnalysis'
 import AnalysisSummary from './AnalysisSummary'
+import LightSuccessChart from './charts/LightSuccessChart'
+import MatchingScoreChart from './charts/MatchingScoreChart'
 
 export default function Dashboard() {
   const [analysisData, setAnalysisData] = useState<any>(null)
@@ -54,7 +56,14 @@ export default function Dashboard() {
       )}
       
       {analysisData && !loading && (
-        <AnalysisSummary data={analysisData} />
+        <>
+            <AnalysisSummary data={analysisData} />
+    
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                <LightSuccessChart data={analysisData} />
+                <MatchingScoreChart data={analysisData} />
+            </div>
+        </>
       )}
     </div>
   )
