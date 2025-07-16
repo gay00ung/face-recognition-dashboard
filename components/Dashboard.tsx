@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import FileUpload from './FileUpload'
+import { parseIntegratedCSV, mergeAnalysisData } from '@/lib/dataAnalysis'
+import AnalysisSummary from './AnalysisSummary'
 
 export default function Dashboard() {
   const [analysisData, setAnalysisData] = useState<any>(null)
@@ -9,12 +11,30 @@ export default function Dashboard() {
 
   const handleFileUpload = async (files: FileList) => {
     setLoading(true)
-    // TODO: 파일 처리 로직 추가
-    console.log('업로드된 파일:', files)
-    setTimeout(() => {
+    
+    try {
+      const fileDataArray = []
+      
+      // 각 파일 읽기
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        const content = await file.text()
+        const parsed = await parseIntegratedCSV(content, file.name)
+        fileDataArray.push(parsed)
+      }
+      
+      // 데이터 병합
+      const mergedData = mergeAnalysisData(fileDataArray)
+      setAnalysisData(mergedData)
+      
+      console.log('분석 완료:', mergedData)
+      
+    } catch (error) {
+      console.error('파일 처리 중 오류:', error)
+      alert('파일 처리 중 오류가 발생했습니다.')
+    } finally {
       setLoading(false)
-      alert('파일 분석 기능을 구현 중입니다!')
-    }, 2000)
+    }
   }
 
   return (
@@ -31,6 +51,10 @@ export default function Dashboard() {
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
           <p className="mt-2">데이터 분석 중...</p>
         </div>
+      )}
+      
+      {analysisData && !loading && (
+        <AnalysisSummary data={analysisData} />
       )}
     </div>
   )
