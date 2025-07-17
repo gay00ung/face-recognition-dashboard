@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Layout from '@/components/Layout'
-import RealtimeChart from '@/components/Charts/RealtimeChart'
+import RealtimeChart from '@/components/charts/RealtimeChart'
 import { supabase, LivenessHistoryDTO, MatchingHistoryDTO, SensorDataDTO, FaceCoordinateDTO } from '@/lib/supabase'
 
 interface CombinedData {
