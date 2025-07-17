@@ -46,14 +46,6 @@ export default function Layout({ children }: LayoutProps) {
                         {sidebarOpen && <span className="ml-3 font-medium">리포트</span>}
                     </Link>
                 </nav>
-
-                {/* 하단 정보 */}
-                <div className="absolute bottom-0 w-full p-4 border-t border-gray-200">
-                    <div className={`text-sm text-gray-500 ${sidebarOpen ? 'block' : 'hidden'}`}>
-                        <p>Face Recognition v1.0</p>
-                        <p className="text-xs mt-1">© 2024 Your Company</p>
-                    </div>
-                </div>
             </aside>
 
             {/* 메인 콘텐츠 */}
