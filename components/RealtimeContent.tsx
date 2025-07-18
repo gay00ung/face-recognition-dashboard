@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import RealtimeChart from '@/components/charts/RealtimeChart'
 import FacePositionVisualizer from '@/components/FacePositionVisualizer'
-import { supabase, LivenessHistoryDTO, MatchingHistoryDTO, SensorDataDTO, FaceCoordinateDTO } from '@/lib/supabase'
+import { supabase, LivenessHistoryDTO, MatchingHistoryDTO, SensorDataDTO, FaceCoordinateDTO, ProcessTimeLogDTO } from '@/lib/supabase'
 
 interface CombinedData {
   id: string
@@ -11,6 +11,7 @@ interface CombinedData {
   matching?: MatchingHistoryDTO
   sensor?: SensorDataDTO
   faceCoordinate?: FaceCoordinateDTO
+  processTimeLogs?: ProcessTimeLogDTO[]
   timestamp: number
 }
 
@@ -19,11 +20,14 @@ export default function RealtimeContent() {
   const [matchingData, setMatchingData] = useState<MatchingHistoryDTO[]>([])
   const [sensorData, setSensorData] = useState<SensorDataDTO[]>([])
   const [faceCoordinateData, setFaceCoordinateData] = useState<FaceCoordinateDTO[]>([])
+  const [processTimeLogData, setProcessTimeLogData] = useState<ProcessTimeLogDTO[]>([])
   const [combinedData, setCombinedData] = useState<CombinedData[]>([])
   const [isConnected, setIsConnected] = useState(false)
 
   // ID별로 데이터 결합
   const combineDataById = () => {
+    console.log('ProcessTimeLogData count:', processTimeLogData.length)
+    console.log('Sample ProcessTimeLog:', processTimeLogData[0])
     const dataMap: { [key: string]: CombinedData } = {}
 
     // 모든 데이터를 ID로 그룹화
@@ -55,6 +59,22 @@ export default function RealtimeContent() {
       dataMap[item.transaction_id].faceCoordinate = item
     })
 
+    // ProcessTimeLog 데이터를 transaction_id로 그룹화
+    processTimeLogData.forEach(item => {
+      console.log('Processing log with transaction_id:', item.transaction_id)
+      if (!dataMap[item.transaction_id]) {
+        dataMap[item.transaction_id] = { id: item.transaction_id, timestamp: item.start_time }
+      }
+      const data = dataMap[item.transaction_id]
+      if (data) {
+        if (!data.processTimeLogs) {
+          data.processTimeLogs = []
+        }
+        data.processTimeLogs.push(item)
+        console.log('Added to dataMap:', item.transaction_id, 'total logs:', data.processTimeLogs.length)
+      }
+    })
+
     // 배열로 변환하고 시간순 정렬
     const combined = Object.values(dataMap)
       .sort((a, b) => b.timestamp - a.timestamp)
@@ -65,7 +85,7 @@ export default function RealtimeContent() {
 
   useEffect(() => {
     combineDataById()
-  }, [livenessData, matchingData, sensorData, faceCoordinateData])
+  }, [livenessData, matchingData, sensorData, faceCoordinateData, processTimeLogData])
 
   useEffect(() => {
     // 초기 데이터 로드
@@ -102,6 +122,13 @@ export default function RealtimeContent() {
           setFaceCoordinateData(prev => [payload.new as FaceCoordinateDTO, ...prev].slice(0, 100))
         }
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'process_time_log' },
+        (payload) => {
+          setProcessTimeLogData(prev => [payload.new as ProcessTimeLogDTO, ...prev].slice(0, 200))
+        }
+      )
       .subscribe((status) => {
         setIsConnected(status === 'SUBSCRIBED')
       })
@@ -113,21 +140,29 @@ export default function RealtimeContent() {
 
   const fetchInitialData = async () => {
     // 최근 100개 데이터 가져오기
-    const [liveness, matching, sensor, face] = await Promise.all([
+    const [liveness, matching, sensor, face, processTime] = await Promise.all([
       supabase.from('liveness_history').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('matching_history').select('*').order('created_at', { ascending: false }).limit(100),
       supabase.from('sensor_data').select('*').order('created_at', { ascending: false }).limit(100),
-      supabase.from('face_coordinates').select('*').order('created_at', { ascending: false }).limit(100)
+      supabase.from('face_coordinates').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('process_time_log').select('*').order('start_time', { ascending: false }).limit(200)
     ])
+
+    console.log('Process Time Log Query Result:', processTime)
+    console.log('Process Time Log Error:', processTime.error)
+    console.log('Process Time Log Data:', processTime.data)
 
     if (liveness.data) setLivenessData(liveness.data)
     if (matching.data) setMatchingData(matching.data)
     if (sensor.data) setSensorData(sensor.data)
     if (face.data) setFaceCoordinateData(face.data)
+    if (processTime.data) setProcessTimeLogData(processTime.data)
   }
 
   // 통계 계산
   const calculateStats = () => {
+    console.log('Calculating stats with combinedData:', combinedData.length)
+    
     const stats = {
       livenessSuccessWithSensor: combinedData.filter(d => 
         d.liveness?.result === 1 && d.sensor
@@ -135,18 +170,113 @@ export default function RealtimeContent() {
       livenessFailWithSensor: combinedData.filter(d => 
         d.liveness?.result === 0 && d.sensor
       ),
-      matchingFailAfterLivenessSuccess: combinedData.filter(d =>
-        d.liveness?.result === 1 && d.matching?.result === 0
-      ),
+      matchingFailAfterLivenessSuccess: combinedData.filter(d => {
+        // matching result가 1이 아닌 모든 경우를 실패로 처리 (0, 3 등)
+        const match = d.liveness?.result === 1 && d.matching && d.matching.result !== 1
+        if (d.liveness?.result === 1 && d.matching) {
+          console.log('Liveness success with matching:', d.id, 'matching result:', d.matching.result)
+        }
+        return match
+      }),
       completeSuccess: combinedData.filter(d =>
         d.liveness?.result === 1 && d.matching?.result === 1
       )
     }
+    
+    console.log('Stats calculated:', {
+      livenessSuccessWithSensor: stats.livenessSuccessWithSensor.length,
+      livenessFailWithSensor: stats.livenessFailWithSensor.length,
+      matchingFailAfterLivenessSuccess: stats.matchingFailAfterLivenessSuccess.length,
+      completeSuccess: stats.completeSuccess.length
+    })
 
     return stats
   }
 
+  // 프로세스별 상세 통계 계산
+  const calculateProcessStats = () => {
+    const processStats: { [key: string]: { 
+      count: number, 
+      totalTime: number, 
+      avgTime: number,
+      minTime: number,
+      maxTime: number,
+      successCount: number,
+      errorCount: number,
+      successAvg: number,
+      errorAvg: number 
+    }} = {}
+
+    processTimeLogData.forEach(log => {
+      const duration = log.duration !== null && log.duration !== undefined 
+        ? log.duration 
+        : log.end_time - log.start_time
+      const processName = log.process_name.toLowerCase()
+      
+      if (!processStats[processName]) {
+        processStats[processName] = {
+          count: 0,
+          totalTime: 0,
+          avgTime: 0,
+          minTime: Infinity,
+          maxTime: 0,
+          successCount: 0,
+          errorCount: 0,
+          successAvg: 0,
+          errorAvg: 0
+        }
+      }
+      
+      const stat = processStats[processName]
+      stat.count++
+      stat.totalTime += duration
+      stat.minTime = Math.min(stat.minTime, duration)
+      stat.maxTime = Math.max(stat.maxTime, duration)
+      
+      if (log.status === 'error') {
+        stat.errorCount++
+      } else {
+        stat.successCount++
+      }
+    })
+
+    // 평균 계산
+    Object.keys(processStats).forEach(key => {
+      const stat = processStats[key]
+      stat.avgTime = stat.totalTime / stat.count
+      
+      // 성공/실패별 평균 계산
+      const successLogs = processTimeLogData.filter(log => 
+        log.process_name.toLowerCase() === key && log.status !== 'error'
+      )
+      const errorLogs = processTimeLogData.filter(log => 
+        log.process_name.toLowerCase() === key && log.status === 'error'
+      )
+      
+      if (successLogs.length > 0) {
+        stat.successAvg = successLogs.reduce((sum, log) => {
+          const duration = log.duration !== null && log.duration !== undefined 
+            ? log.duration 
+            : log.end_time - log.start_time
+          return sum + duration
+        }, 0) / successLogs.length
+      }
+      
+      if (errorLogs.length > 0) {
+        stat.errorAvg = errorLogs.reduce((sum, log) => {
+          const duration = log.duration !== null && log.duration !== undefined 
+            ? log.duration 
+            : log.end_time - log.start_time
+          return sum + duration
+        }, 0) / errorLogs.length
+      }
+    })
+
+    return processStats
+  }
+
   const stats = calculateStats()
+  const processStats = calculateProcessStats()
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -205,6 +335,67 @@ export default function RealtimeContent() {
         </div>
       </div>
 
+      {/* 프로세스별 통계 */}
+      {Object.keys(processStats).length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">프로세스별 성능 분석</h2>
+          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">프로세스</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">총 실행</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">성공</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">실패</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">평균 시간</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">성공 평균</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">실패 평균</th>
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">최소/최대</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {Object.entries(processStats).map(([processName, stat]) => {
+                    const successRate = (stat.successCount / stat.count) * 100
+                    const displayName = processName
+                      .replace(/_/g, ' ')
+                      .split(' ')
+                      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                      .join(' ')
+                    
+                    return (
+                      <tr key={processName} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{displayName}</td>
+                        <td className="px-4 py-3 text-sm text-right text-gray-900">{stat.count}</td>
+                        <td className="px-4 py-3 text-sm text-right">
+                          <span className="text-green-600 font-medium">{stat.successCount}</span>
+                          <span className="text-gray-500 text-xs ml-1">({successRate.toFixed(1)}%)</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right">
+                          <span className="text-red-600 font-medium">{stat.errorCount}</span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-mono font-medium text-gray-900">
+                          {stat.avgTime.toFixed(0)}ms
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-green-600">
+                          {stat.successAvg > 0 ? `${stat.successAvg.toFixed(0)}ms` : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-red-600">
+                          {stat.errorAvg > 0 ? `${stat.errorAvg.toFixed(0)}ms` : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-gray-600">
+                          {stat.minTime.toFixed(0)}-{stat.maxTime.toFixed(0)}ms
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 실시간 차트 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white p-6 rounded-xl shadow-lg">
@@ -254,7 +445,7 @@ export default function RealtimeContent() {
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-red-100 text-red-800'
                       }`}>
-                        {item.matching.result === 1 ? '성공' : '실패'} ({item.matching.score}/{item.matching.th_score})
+                        {item.matching.result === 1 ? '성공' : `실패(${item.matching.result})`} ({item.matching.score}/{item.matching.th_score})
                       </span>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
@@ -408,8 +599,118 @@ export default function RealtimeContent() {
                       </div>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-700">
-                    {new Date(item.timestamp).toLocaleTimeString()}
+                  <td className="px-4 py-3">
+                    <div className="space-y-2">
+                      {/* 시간 정보 */}
+                      <div className="text-sm font-medium text-gray-900">
+                        {new Date(item.timestamp).toLocaleTimeString()}
+                      </div>
+                      
+                      {/* 프로세스 소요시간 */}
+                      <div className="space-y-1">
+                        {/* Process Time Log 데이터 기반 표시 */}
+                        {(() => {
+                          console.log('ProcessTimeLogs for', item.id, ':', item.processTimeLogs)
+                          return null
+                        })()}
+                        {item.processTimeLogs && item.processTimeLogs.length > 0 ? (
+                          <>
+                            {item.processTimeLogs
+                              .sort((a, b) => a.start_time - b.start_time)
+                              .map((log, idx) => {
+                                // duration이 이미 계산되어 있으면 사용, 아니면 직접 계산
+                                const duration = log.duration !== null && log.duration !== undefined 
+                                  ? log.duration 
+                                  : log.end_time - log.start_time
+                                const processNameLower = log.process_name.toLowerCase()
+                                const colorClass = 
+                                  processNameLower.includes('liveness') ? 'bg-blue-500' : 
+                                  processNameLower.includes('matching') ? 'bg-green-500' :
+                                  processNameLower.includes('face') ? 'bg-amber-500' :
+                                  processNameLower.includes('local') ? 'bg-purple-500' :
+                                  processNameLower.includes('capture') ? 'bg-pink-500' :
+                                  processNameLower.includes('detection') ? 'bg-indigo-500' : 'bg-gray-500'
+                                
+                                const displayName = log.process_name
+                                  .replace(/_/g, ' ')
+                                  .split(' ')
+                                  .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                                  .join(' ')
+                                
+                                return (
+                                  <div key={idx} className="flex items-center gap-1.5 group">
+                                    <div className={`w-2 h-2 rounded-full ${colorClass}`}></div>
+                                    <span className="text-xs text-gray-600 truncate max-w-[80px]" title={displayName}>
+                                      {displayName}
+                                    </span>
+                                    <span className={`text-xs font-mono font-medium ml-auto ${
+                                      log.status === 'error' ? 'text-red-600' : 'text-gray-900'
+                                    }`}>
+                                      {duration.toFixed(0)}ms
+                                    </span>
+                                    {log.status === 'error' && (
+                                      <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            
+                            {/* 전체 소요시간 */}
+                            {item.processTimeLogs.length > 1 && (
+                              <div className="flex items-center gap-1.5 pt-1 border-t border-gray-200">
+                                <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                                <span className="text-xs font-medium text-gray-700">Total</span>
+                                <span className="text-xs font-mono font-semibold text-gray-900 ml-auto">
+                                  {(() => {
+                                    // 전체 시간을 duration 합계로 계산하거나 시작-끝 시간차로 계산
+                                    const totalDuration = item.processTimeLogs.reduce((sum, log) => {
+                                      const duration = log.duration !== null && log.duration !== undefined 
+                                        ? log.duration 
+                                        : log.end_time - log.start_time
+                                      return sum + duration
+                                    }, 0)
+                                    return totalDuration.toFixed(0)
+                                  })()}ms
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {/* 기존 response_time 기반 표시 (fallback) */}
+                            {item.liveness && (
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                                <span className="text-xs text-gray-600">Liveness</span>
+                                <span className="text-xs font-mono font-medium text-gray-900 ml-auto">
+                                  {item.liveness.response_time}ms
+                                </span>
+                              </div>
+                            )}
+                            {item.matching && (
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                                <span className="text-xs text-gray-600">Matching</span>
+                                <span className="text-xs font-mono font-medium text-gray-900 ml-auto">
+                                  {item.matching.response_time}ms
+                                </span>
+                              </div>
+                            )}
+                            {item.liveness && item.matching && (
+                              <div className="flex items-center gap-1.5 pt-1 border-t border-gray-200">
+                                <div className="w-2 h-2 rounded-full bg-purple-500"></div>
+                                <span className="text-xs font-medium text-gray-700">Total</span>
+                                <span className="text-xs font-mono font-semibold text-gray-900 ml-auto">
+                                  {(item.liveness.response_time + item.matching.response_time)}ms
+                                </span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ))}
