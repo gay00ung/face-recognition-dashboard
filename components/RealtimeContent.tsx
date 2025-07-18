@@ -207,7 +207,13 @@ export default function RealtimeContent() {
       errorAvg: number 
     }} = {}
 
-    processTimeLogData.forEach(log => {
+    // 먼저 모든 프로세스 로그를 transaction_id와 연결
+    const enrichedLogs = processTimeLogData.map(log => {
+      const combinedItem = combinedData.find(item => item.id === log.transaction_id)
+      return { log, combinedItem }
+    })
+
+    enrichedLogs.forEach(({ log, combinedItem }) => {
       const duration = log.duration !== null && log.duration !== undefined 
         ? log.duration 
         : log.end_time - log.start_time
@@ -233,7 +239,16 @@ export default function RealtimeContent() {
       stat.minTime = Math.min(stat.minTime, duration)
       stat.maxTime = Math.max(stat.maxTime, duration)
       
-      if (log.status === 'error') {
+      // 실제 결과로 성공/실패 판단
+      let isError = log.status === 'error'
+      
+      if (processName.includes('matching') && combinedItem?.matching) {
+        isError = combinedItem.matching.result !== 1
+      } else if (processName.includes('liveness') && combinedItem?.liveness) {
+        isError = combinedItem.liveness.result !== 1
+      }
+      
+      if (isError) {
         stat.errorCount++
       } else {
         stat.successCount++
@@ -245,16 +260,31 @@ export default function RealtimeContent() {
       const stat = processStats[key]
       stat.avgTime = stat.totalTime / stat.count
       
-      // 성공/실패별 평균 계산
-      const successLogs = processTimeLogData.filter(log => 
-        log.process_name.toLowerCase() === key && log.status !== 'error'
-      )
-      const errorLogs = processTimeLogData.filter(log => 
-        log.process_name.toLowerCase() === key && log.status === 'error'
-      )
+      // 성공/실패별 평균 계산 (실제 결과 기반)
+      const successLogs = enrichedLogs.filter(({ log, combinedItem }) => {
+        if (log.process_name.toLowerCase() !== key) return false
+        
+        if (key.includes('matching') && combinedItem?.matching) {
+          return combinedItem.matching.result === 1
+        } else if (key.includes('liveness') && combinedItem?.liveness) {
+          return combinedItem.liveness.result === 1
+        }
+        return log.status !== 'error'
+      })
+      
+      const errorLogs = enrichedLogs.filter(({ log, combinedItem }) => {
+        if (log.process_name.toLowerCase() !== key) return false
+        
+        if (key.includes('matching') && combinedItem?.matching) {
+          return combinedItem.matching.result !== 1
+        } else if (key.includes('liveness') && combinedItem?.liveness) {
+          return combinedItem.liveness.result !== 1
+        }
+        return log.status === 'error'
+      })
       
       if (successLogs.length > 0) {
-        stat.successAvg = successLogs.reduce((sum, log) => {
+        stat.successAvg = successLogs.reduce((sum, { log }) => {
           const duration = log.duration !== null && log.duration !== undefined 
             ? log.duration 
             : log.end_time - log.start_time
@@ -263,7 +293,7 @@ export default function RealtimeContent() {
       }
       
       if (errorLogs.length > 0) {
-        stat.errorAvg = errorLogs.reduce((sum, log) => {
+        stat.errorAvg = errorLogs.reduce((sum, { log }) => {
           const duration = log.duration !== null && log.duration !== undefined 
             ? log.duration 
             : log.end_time - log.start_time
@@ -637,6 +667,26 @@ export default function RealtimeContent() {
                                   .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
                                   .join(' ')
                                 
+                                // 실제 결과 확인 (process_time_log의 status가 부정확할 수 있음)
+                                let isError = log.status === 'error'
+                                let actualStatus = log.status
+                                
+                                // matching 프로세스인 경우 실제 matching 결과 확인
+                                if (processNameLower.includes('matching') && item.matching) {
+                                  if (item.matching.result !== 1) {
+                                    isError = true
+                                    actualStatus = `failed(${item.matching.result})`
+                                  }
+                                }
+                                
+                                // liveness 프로세스인 경우 실제 liveness 결과 확인
+                                if (processNameLower.includes('liveness') && item.liveness) {
+                                  if (item.liveness.result !== 1) {
+                                    isError = true
+                                    actualStatus = 'failed'
+                                  }
+                                }
+                                
                                 return (
                                   <div key={idx} className="flex items-center gap-1.5 group">
                                     <div className={`w-2 h-2 rounded-full ${colorClass}`}></div>
@@ -644,12 +694,12 @@ export default function RealtimeContent() {
                                       {displayName}
                                     </span>
                                     <span className={`text-xs font-mono font-medium ml-auto ${
-                                      log.status === 'error' ? 'text-red-600' : 'text-gray-900'
+                                      isError ? 'text-red-600' : 'text-gray-900'
                                     }`}>
                                       {duration.toFixed(0)}ms
                                     </span>
-                                    {log.status === 'error' && (
-                                      <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                    {isError && (
+                                      <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20" title={`Status: ${actualStatus}`}>
                                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                       </svg>
                                     )}
