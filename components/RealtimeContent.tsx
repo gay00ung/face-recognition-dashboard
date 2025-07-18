@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import RealtimeChart from '@/components/charts/RealtimeChart'
+import FacePositionVisualizer from '@/components/FacePositionVisualizer'
 import { supabase, LivenessHistoryDTO, MatchingHistoryDTO, SensorDataDTO, FaceCoordinateDTO } from '@/lib/supabase'
 
 interface CombinedData {
@@ -227,7 +228,7 @@ export default function RealtimeContent() {
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Liveness</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Matching</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">센서 데이터</th>
-                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">얼굴 좌표</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">얼굴 위치</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">시간</th>
               </tr>
             </thead>
@@ -257,19 +258,153 @@ export default function RealtimeContent() {
                       </span>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
-                  <td className="px-4 py-3 text-sm">
+                  <td className="px-4 py-3">
                     {item.sensor ? (
-                      <div>
-                        <div className="font-medium text-gray-900">조도: {item.sensor.ambient_light} lux</div>
-                        <div className="text-xs text-gray-600 mt-0.5">각도: {item.sensor.euler_angles.slice(0, 20)}...</div>
+                      <div className="space-y-2">
+                        {/* 조도 정보 */}
+                        <div className="bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg p-2.5">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            <div>
+                              <span className="text-xs font-medium text-gray-700">조도</span>
+                              <span className="ml-2 text-sm font-mono font-semibold text-gray-900">{item.sensor.ambient_light} lux</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* 각도 정보 */}
+                        <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-2.5">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            <div className="flex-1">
+                              <div className="text-xs font-medium text-gray-700 mb-1">오일러 각도</div>
+                              {(() => {
+                                try {
+                                  const angles = JSON.parse(item.sensor.euler_angles);
+                                  if (Array.isArray(angles) && angles.length >= 3) {
+                                    return (
+                                      <div className="grid grid-cols-3 gap-2 text-xs">
+                                        <div className="relative group cursor-help">
+                                          <span className="text-gray-700 font-medium">X:</span>
+                                          <span className="font-mono ml-1 text-gray-900 font-semibold">{parseFloat(angles[0]).toFixed(1)}°</span>
+                                          <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded py-1 px-2 bottom-full left-1/2 transform -translate-x-1/2 mb-2 whitespace-nowrap">
+                                            X: {angles[0]}°
+                                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                          </div>
+                                        </div>
+                                        <div className="relative group cursor-help">
+                                          <span className="text-gray-700 font-medium">Y:</span>
+                                          <span className="font-mono ml-1 text-gray-900 font-semibold">{parseFloat(angles[1]).toFixed(1)}°</span>
+                                          <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded py-1 px-2 bottom-full left-1/2 transform -translate-x-1/2 mb-2 whitespace-nowrap">
+                                            Y: {angles[1]}°
+                                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                          </div>
+                                        </div>
+                                        <div className="relative group cursor-help">
+                                          <span className="text-gray-700 font-medium">Z:</span>
+                                          <span className="font-mono ml-1 text-gray-900 font-semibold">{parseFloat(angles[2]).toFixed(1)}°</span>
+                                          <div className="absolute z-10 invisible group-hover:visible bg-gray-800 text-white text-xs rounded py-1 px-2 bottom-full left-1/2 transform -translate-x-1/2 mb-2 whitespace-nowrap">
+                                            Z: {angles[2]}°
+                                            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return <span className="text-xs text-gray-500">데이터 형식 오류</span>;
+                                } catch (e) {
+                                  return (
+                                    <div 
+                                      className="text-xs text-gray-600 truncate cursor-help" 
+                                      title={item.sensor.euler_angles}
+                                    >
+                                      {item.sensor.euler_angles.substring(0, 30)}...
+                                    </div>
+                                  );
+                                }
+                              })()}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
-                  <td className="px-4 py-3 text-sm">
+                  <td className="px-4 py-3">
                     {item.faceCoordinate ? (
-                      <div className="text-gray-900">
-                        <div>Yaw: {item.faceCoordinate.yaw?.toFixed(1)}°</div>
-                        <div>Pitch: {item.faceCoordinate.pitch?.toFixed(1)}°</div>
+                      <div className="flex gap-3">
+                        <FacePositionVisualizer
+                          bbox_x={item.faceCoordinate.bbox_x}
+                          bbox_y={item.faceCoordinate.bbox_y}
+                          bbox_w={item.faceCoordinate.bbox_w}
+                          bbox_h={item.faceCoordinate.bbox_h}
+                          yaw={item.faceCoordinate.yaw}
+                          pitch={item.faceCoordinate.pitch}
+                          roll={item.faceCoordinate.roll}
+                        />
+                        <div className="min-w-[140px] space-y-3">
+                          {/* 각도 정보 */}
+                          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-indigo-700 mb-2 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              각도
+                            </div>
+                            <div className="space-y-1.5">
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs text-gray-600">Yaw</span>
+                                <span className="text-sm font-mono font-medium text-gray-900">
+                                  {item.faceCoordinate.yaw !== null && item.faceCoordinate.yaw !== undefined ? `${Math.round(item.faceCoordinate.yaw)}°` : '-'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs text-gray-600">Pitch</span>
+                                <span className="text-sm font-mono font-medium text-gray-900">
+                                  {item.faceCoordinate.pitch !== null && item.faceCoordinate.pitch !== undefined ? `${Math.round(item.faceCoordinate.pitch)}°` : '-'}
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                <span className="text-xs text-gray-600">Roll</span>
+                                <span className="text-sm font-mono font-medium text-gray-900">
+                                  {item.faceCoordinate.roll !== null && item.faceCoordinate.roll !== undefined ? `${Math.round(item.faceCoordinate.roll)}°` : '-'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* 위치 정보 */}
+                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3">
+                            <div className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              위치
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-600">X</span>
+                                <span className="text-xs font-mono font-medium text-gray-900">{item.faceCoordinate.bbox_x?.toFixed(0) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-600">Y</span>
+                                <span className="text-xs font-mono font-medium text-gray-900">{item.faceCoordinate.bbox_y?.toFixed(0) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-600">W</span>
+                                <span className="text-xs font-mono font-medium text-gray-900">{item.faceCoordinate.bbox_w?.toFixed(0) || '-'}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-600">H</span>
+                                <span className="text-xs font-mono font-medium text-gray-900">{item.faceCoordinate.bbox_h?.toFixed(0) || '-'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ) : <span className="text-gray-400">-</span>}
                   </td>
