@@ -57,3 +57,14 @@ export interface FaceCoordinateDTO {
   roll?: number | null
   created_at: number
 }
+
+export interface ProcessTimeLogDTO {
+  id: string
+  transaction_id: string
+  process_name: string
+  start_time: number
+  end_time: number
+  duration?: number | null
+  status?: string | null
+  error_message?: string | null
+}
